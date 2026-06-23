@@ -13,45 +13,32 @@ if (!isset($_SESSION['user'])) {
     $showLoginAlert = true;
 }
 
-$filmDipilih = "";
+// =========================================================================
+// PERUBAHAN LOGIKA: AMBIL DAFTAR GENRE UNTUK DROPDOWN
+// =========================================================================
+$masterGenre = [];
+if (isset($_SESSION['daftar_film'])) {
+    $masterGenre = dapatkanMasterGenre($_SESSION['daftar_film']);
+    sort($masterGenre); // Opsional: Mengurutkan genre sesuai abjad (A-Z)
+}
 
-// Logika Filter Rekomendasi Pintar (Menggunakan Dropdown)
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_suka'])) {
-    $filmDipilih = $_POST['film_disukai'];
+$genreDipilih = "";
+
+// Logika Filter Rekomendasi Pintar (Menggunakan Dropdown Genre)
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_cari_genre'])) {
+    $genreDipilih = $_POST['genre_target'];
     $_SESSION['rekomendasi'] = [];
 
-    // 1. Cari data lengkap dari film yang dipilih (Agar bisa ditampilkan secara terpisah)
-    $dataFilmUtama = null;
-    $genreDipilih = "";
-    foreach ($_SESSION['daftar_film'] as $f) {
-        if ($f['judul'] === $filmDipilih) {
-            $genreDipilih = $f['genre'];
-            $dataFilmUtama = $f;
-            break;
-        }
-    }
+    // Eksekusi fungsi utama dari rekomendasi_engine.php
+    // Parameter pertama kita isi "Pencarian" karena judul tidak lagi relevan
+    $semuaRekomendasi = dapatkanRekomendasi("Pencarian", $genreDipilih, $_SESSION['daftar_film']);
     
-    // Simpan data film utama ke session
-    $_SESSION['film_utama'] = $dataFilmUtama;
+    // Ambil 4 rekomendasi terbaik saja (yang skor kemiripannya > 0)
+    $_SESSION['rekomendasi'] = array_slice($semuaRekomendasi, 0, 4);
 
-    // 2. Eksekusi fungsi utama dari rekomendasi_engine.php
-    $semuaRekomendasi = dapatkanRekomendasi($filmDipilih, $genreDipilih, $_SESSION['daftar_film']);
-    
-    // 3. Bersihkan hasil: Pastikan film utama TIDAK ikut masuk ke daftar 'Recommended For You'
-    $rekomendasiBersih = [];
-    foreach($semuaRekomendasi as $rek) {
-        if (strtolower(trim($rek['judul'])) !== strtolower(trim($filmDipilih))) {
-            $rekomendasiBersih[] = $rek;
-        }
-    }
-
-    // 4. Ambil 4 rekomendasi terbaik saja
-    $_SESSION['rekomendasi'] = array_slice($rekomendasiBersih, 0, 4);
-
-} else if (!isset($_POST['action_suka'])) {
+} else if (!isset($_POST['action_cari_genre'])) {
     // Kosongkan pencarian jika halaman di-refresh tanpa mencari
-    $filmDipilih = "";
-    unset($_SESSION['film_utama']);
+    $genreDipilih = "";
     unset($_SESSION['rekomendasi']);
 }
 ?>
@@ -155,16 +142,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_suka'])) {
 
         <div class="row justify-content-center mb-5">
             <div class="col-md-8 bg-dark p-4 rounded shadow border border-secondary">
-                <h4 class="mb-3 text-danger fw-bold"><i class="fa-solid fa-wand-magic-sparkles me-2"></i>Smart Recommendation</h4>
+                <h4 class="mb-3 text-danger fw-bold"><i class="fa-solid fa-wand-magic-sparkles me-2"></i>Smart Search</h4>
                 <form method="POST" action="">
-                    <input type="hidden" name="action_suka" value="1">
+                    <input type="hidden" name="action_cari_genre" value="1">
                     <div class="row g-3 align-items-center">
                         <div class="col-md-8">
-                            <select class="form-select bg-secondary text-white border-0 py-2.5 fw-semibold" name="film_disukai" required>
-                                <option value="" disabled selected>Select a movie you like...</option>
-                                <?php foreach ($_SESSION['daftar_film'] as $f): ?>
-                                    <option value="<?= $f['judul']; ?>" <?= ($filmDipilih == $f['judul']) ? 'selected' : ''; ?>>
-                                        <?= $f['judul']; ?> [<?= $f['genre']; ?>]
+                            <select class="form-select bg-secondary text-white border-0 py-2.5 fw-semibold" name="genre_target" required>
+                                <option value="" disabled <?= empty($genreDipilih) ? 'selected' : ''; ?>>Select a genre you want to watch...</option>
+                                <?php foreach ($masterGenre as $g): ?>
+                                    <option value="<?= $g; ?>" <?= ($genreDipilih == $g) ? 'selected' : ''; ?>>
+                                        <?= ucfirst($g); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -177,41 +164,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action_suka'])) {
             </div>
         </div>
 
-        <?php if (isset($_SESSION['film_utama'])): ?>
-            <div class="row justify-content-center mb-5">
-                <div class="col-md-8">
-                    <h5 class="fw-bold text-white mb-3"><i class="fa-solid fa-crosshairs text-danger me-2"></i>Target Movie</h5>
-                    <div class="card bg-dark text-white border-secondary shadow-lg" style="flex-direction: row; padding: 15px; border-radius: 8px;">
-                        <img src="<?= $_SESSION['film_utama']['poster']; ?>" style="width: 100px; height: 145px; object-fit: cover; border-radius: 5px;" alt="poster">
-                        <div class="card-body py-2 px-4 d-flex flex-column justify-content-center">
-                            <h4 class="card-title text-white fw-bold mb-2"><?= $_SESSION['film_utama']['judul']; ?></h4>
-                            <div>
-                                <span class="badge bg-danger mb-2 me-1"><?= $_SESSION['film_utama']['genre']; ?></span>
-                                <span class="badge bg-success mb-2"><i class="fa-solid fa-bullseye me-1"></i>Match: 100%</span>
-                            </div>
-                            <div class="d-flex gap-3 small text-light mt-1 mb-2">
-                                <span><i class="fa-solid fa-calendar me-1 text-secondary"></i>Year: <?= $_SESSION['film_utama']['tahun']; ?></span>
-                                <span class="text-warning fw-bold"><i class="fa-solid fa-star me-1"></i><?= $_SESSION['film_utama']['rating']; ?></span>
-                            </div>
-                            <form method="POST" action="streaming_list.php">
-                                <input type="hidden" name="id_film" value="<?= $_SESSION['film_utama']['judul']; ?>">
-                                <input type="hidden" name="poster_film" value="<?= $_SESSION['film_utama']['poster']; ?>">
-                                <input type="hidden" name="genre_film" value="<?= $_SESSION['film_utama']['genre']; ?>">
-                                <input type="hidden" name="tahun_film" value="<?= $_SESSION['film_utama']['tahun']; ?>">
-                                <input type="hidden" name="rating_film" value="<?= $_SESSION['film_utama']['rating']; ?>">
-                                <button type="submit" name="tambah_watchlist" class="btn btn-danger-netflix btn-sm px-4 mt-2">
-                                    <i class="fa-solid fa-play me-2"></i>Watch Now
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        <?php endif; ?>
-
         <?php if (!empty($_SESSION['rekomendasi'])): ?>
             <section id="rekomendasi-section" class="mb-5 bg-black p-4 rounded border border-danger shadow-lg">
-                <h3 class="fw-bold text-danger mb-4"><i class="fa-solid fa-star me-2"></i>Recommended For You</h3>
+                <h3 class="fw-bold text-danger mb-4">
+                    <i class="fa-solid fa-star me-2"></i>Top Results for "<?= ucfirst($genreDipilih); ?>"
+                </h3>
                 <div class="row row-cols-1 row-cols-md-4 g-4">
                     <?php foreach ($_SESSION['rekomendasi'] as $movie): ?>
                         <div class="col">
