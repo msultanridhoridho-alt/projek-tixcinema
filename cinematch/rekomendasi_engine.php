@@ -2,27 +2,88 @@
 // rekomendasi_engine.php
 
 /**
- * FUNGSI 1: Mengambil daftar genre unik secara otomatis dari database.
- * Diperlukan oleh index.php untuk menampilkan pilihan genre/dropdown.
+ * STRUKTUR DATA: Node untuk Binary Search Tree (BST)
+ * Menyimpan data film dan pointer ke anak kiri serta anak kanan.
+ */
+class NodeFilm {
+    public $film;
+    public $left = null;
+    public $right = null;
+
+    public function __construct($film) {
+        $this->film = $film;
+    }
+}
+
+/**
+ * STRUKTUR DATA: Binary Search Tree khusus untuk mengurutkan rekomendasi
+ */
+class RekomendasiTree {
+    public $root = null;
+
+    // Fungsi untuk memasukkan node baru ke dalam Tree secara rekursif
+    public function insert($film) {
+        $newNode = new NodeFilm($film);
+        if ($this->root === null) {
+            $this->root = $newNode;
+        } else {
+            $this->insertNode($this->root, $newNode);
+        }
+    }
+
+    private function insertNode($current, $newNode) {
+        // Jika skor film baru LEBIH KECIL, masukkan ke sebelah KIRI
+        if ($newNode->film['skor_kemiripan'] < $current->film['skor_kemiripan']) {
+            if ($current->left === null) {
+                $current->left = $newNode;
+            } else {
+                $this->insertNode($current->left, $newNode);
+            }
+        } 
+        // Jika skor film baru LEBIH BESAR atau SAMA DENGAN, masukkan ke sebelah KANAN
+        else {
+            if ($current->right === null) {
+                $current->right = $newNode;
+            } else {
+                $this->insertNode($current->right, $newNode);
+            }
+        }
+    }
+
+    /**
+     * REVERSE IN-ORDER TRAVERSAL (Kanan -> Akar -> Kiri)
+     * Mengambil data dari Tree dari nilai terbesar ke terkecil secara rekursif
+     */
+    public function keArrayDescending($node, &$hasil) {
+        if ($node !== null) {
+            // Kunjungi cabang kanan dulu (nilai-nilai yang lebih besar)
+            $this->keArrayDescending($node->right, $hasil);
+            
+            // Masukkan data node saat ini ke dalam array hasil
+            $hasil[] = $node->film;
+            
+            // Kunjungi cabang kiri (nilai-nilai yang lebih kecil)
+            $this->keArrayDescending($node->left, $hasil);
+        }
+    }
+}
+
+/**
+ * FUNGSI 1: Mengambil daftar genre unik secara otomatis dari database (Linear Search).
  */
 function dapatkanMasterGenre($databaseFilm) {
     $master = [];
     foreach ($databaseFilm as $film) {
-        // Pecah string genre (misal: "Action, Sci-Fi") jadi array
         $genres = array_map('trim', explode(',', strtolower($film['genre'])));
-        
         foreach ($genres as $g) {
             if ($g !== "") {
-                // LINEAR SEARCH MANUAL: Cek apakah genre sudah ada di array $master atau belum
                 $sudahAda = false;
                 foreach ($master as $m) {
                     if ($m === $g) {
                         $sudahAda = true;
-                        break; // Jika ketemu yang sama, hentikan pencarian
+                        break;
                     }
                 }
-                
-                // Jika setelah dicek manual memang belum ada, baru masukkan ke array master
                 if (!$sudahAda) {
                     $master[] = $g;
                 }
@@ -34,20 +95,21 @@ function dapatkanMasterGenre($databaseFilm) {
 
 /**
  * FUNGSI 2: Digunakan di index.php untuk mendapatkan daftar rekomendasi.
- * Menggunakan pendekatan Array Sederhana dan Pencarian Linear
+ * Menggunakan kombinasi Linear Search (Pencarian) dan Binary Search Tree (Pengurutan)
  */
 function dapatkanRekomendasi($judulTarget, $genreTarget, $databaseFilm) {
     
-    // 1. Pecah genre film yang sedang dicari menjadi array
     $targetGenres = array_map('trim', explode(',', strtolower($genreTarget)));
-    $hasil = [];
+    
+    // Inisialisasi Pohon Struktur Data (Tree)
+    $treeRekomendasi = new RekomendasiTree();
+    $adaData = false;
 
-    // 2. LINEAR SEARCH: Loop setiap film di database untuk menghitung kecocokan genre
+    // 1. LINEAR SEARCH: Hitung kecocokan genre
     foreach ($databaseFilm as $film) {
         $filmGenres = array_map('trim', explode(',', strtolower($film['genre'])));
         $jumlahMatch = 0;
 
-        // Bandingkan satu per satu genre target dengan genre film di database
         foreach ($targetGenres as $tGenre) {
             foreach ($filmGenres as $fGenre) {
                 if ($tGenre === $fGenre && $tGenre !== "") {
@@ -57,30 +119,25 @@ function dapatkanRekomendasi($judulTarget, $genreTarget, $databaseFilm) {
             }
         }
 
-        // Hanya masukkan ke daftar rekomendasi jika ada minimal 1 genre yang sama (skor > 0)
+        // 2. TREE INSERTION: Jika cocok, langsung masukkan ke dalam Tree
         if ($jumlahMatch > 0) {
-            // PERBAIKAN: Hitung skor desimal agar persentase match di frontend bervariasi
             $totalGenreFilm = count($filmGenres);
             $skorDesimal = $jumlahMatch / $totalGenreFilm;
             
             $film['skor_kemiripan'] = $skorDesimal; 
-            $hasil[] = $film;
+            
+            // Masukkan ke dalam struktur data Tree
+            $treeRekomendasi->insert($film);
+            $adaData = true;
         }
     }
 
-    // 3. BUBBLE SORT: Mengurutkan hasil dari kecocokan tertinggi ke terendah (Descending)
-    $n = count($hasil);
-    for ($i = 0; $i < $n - 1; $i++) {
-        for ($j = 0; $j < $n - $i - 1; $j++) {
-            // Jika skor film saat ini lebih kecil dari film berikutnya, tukar posisi (Swap)
-            if ($hasil[$j]['skor_kemiripan'] < $hasil[$j + 1]['skor_kemiripan']) {
-                $temp = $hasil[$j];
-                $hasil[$j] = $hasil[$j + 1];
-                $hasil[$j + 1] = $temp;
-            }
-        }
+    // 3. TREE TRAVERSAL: Ubah struktur Tree kembali menjadi Array yang berurutan secara Descending
+    $hasilUrut = [];
+    if ($adaData) {
+        $treeRekomendasi->keArrayDescending($treeRekomendasi->root, $hasilUrut);
     }
 
-    return $hasil;
+    return $hasilUrut;
 }
 ?>
