@@ -1,153 +1,235 @@
 <?php
 // rekomendasi_engine.php
 
-/**
- * STRUKTUR DATA: Node untuk Binary Search Tree (BST)
- * Menyimpan data film dan pointer ke anak kiri serta anak kanan.
- */
-class NodeFilm {
-    public $film;
-    public $left = null;
-    public $right = null;
+/* =================================================================
+   1. MATERI: LINKED LIST
+   Digunakan untuk menampung hasil pencarian secara dinamis
+================================================================= */
+class NodeLinkedList {
+    public $data;
+    public $next = null;
 
-    public function __construct($film) {
-        $this->film = $film;
+    public function __construct($data) {
+        $this->data = $data;
     }
 }
 
-/**
- * STRUKTUR DATA: Binary Search Tree khusus untuk mengurutkan rekomendasi
- */
-class RekomendasiTree {
-    public $root = null;
+class PencarianLinkedList {
+    public $head = null;
+
+    public function tambahData($data) {
+        $newNode = new NodeLinkedList($data);
+        if ($this->head === null) {
+            $this->head = $newNode;
+        } else {
+            $current = $this->head;
+            while ($current->next !== null) {
+                $current = $current->next;
+            }
+            $current->next = $newNode;
+        }
+    }
+
+    // Mengubah Linked List kembali ke Array agar bisa dibaca HTML/Frontend
+    public function keArray() {
+        $hasil = [];
+        $current = $this->head;
+        while ($current !== null) {
+            $hasil[] = $current->data;
+            $current = $current->next;
+        }
+        return $hasil;
+    }
+}
+
+/* =================================================================
+   2. MATERI: BINARY HEAP (MAX-HEAP) & REKURSIF
+   Digunakan untuk mengurutkan (Sorting) Rekomendasi Film
+================================================================= */
+class MaxHeap {
+    public $heap = [];
 
     public function insert($film) {
-        $newNode = new NodeFilm($film);
-        if ($this->root === null) {
-            $this->root = $newNode;
-        } else {
-            $this->insertNode($this->root, $newNode);
+        $this->heap[] = $film;
+        $this->heapifyUp(count($this->heap) - 1);
+    }
+
+    // Algoritma Rekursif untuk menaikkan nilai terbesar ke atas
+    private function heapifyUp($index) {
+        // Base case: Berhenti jika sudah mencapai root atau index tidak valid
+        if ($index <= 0) return; 
+
+        // Paksa (casting) hasil floor menjadi Integer murni untuk menghindari error tipe data
+        $parentIndex = (int) floor(($index - 1) / 2);
+
+        if ($this->heap[$parentIndex]['skor_kemiripan'] < $this->heap[$index]['skor_kemiripan']) {
+            // Tukar posisi (Swap)
+            $temp = $this->heap[$parentIndex];
+            $this->heap[$parentIndex] = $this->heap[$index];
+            $this->heap[$index] = $temp;
+            
+            // Panggil fungsi secara rekursif ke level yang lebih tinggi
+            $this->heapifyUp($parentIndex);
         }
     }
 
-    private function insertNode($current, $newNode) {
-        if ($newNode->film['skor_kemiripan'] < $current->film['skor_kemiripan']) {
-            if ($current->left === null) {
-                $current->left = $newNode;
-            } else {
-                $this->insertNode($current->left, $newNode);
-            }
-        } else {
-            if ($current->right === null) {
-                $current->right = $newNode;
-            } else {
-                $this->insertNode($current->right, $newNode);
-            }
-        }
+    public function extractMax() {
+        if (count($this->heap) === 0) return null;
+        if (count($this->heap) === 1) return array_pop($this->heap);
+
+        $max = $this->heap[0];
+        // Pindahkan elemen terakhir ke root, lalu turunkan
+        $this->heap[0] = array_pop($this->heap);
+        $this->heapifyDown(0);
+
+        return $max;
     }
 
-    public function keArrayDescending($node, &$hasil) {
-        if ($node !== null) {
-            $this->keArrayDescending($node->right, $hasil);
-            $hasil[] = $node->film;
-            $this->keArrayDescending($node->left, $hasil);
+    // Algoritma Rekursif untuk menata ulang heap setelah Root diambil
+    private function heapifyDown($index) {
+        $index = (int) $index;
+        $left = 2 * $index + 1;
+        $right = 2 * $index + 2;
+        $largest = $index;
+        $panjang = count($this->heap);
+
+        if ($left < $panjang && $this->heap[$left]['skor_kemiripan'] > $this->heap[$largest]['skor_kemiripan']) {
+            $largest = $left;
+        }
+        if ($right < $panjang && $this->heap[$right]['skor_kemiripan'] > $this->heap[$largest]['skor_kemiripan']) {
+            $largest = $right;
+        }
+
+        if ($largest !== $index) {
+            // Tukar posisi (Swap)
+            $temp = $this->heap[$index];
+            $this->heap[$index] = $this->heap[$largest];
+            $this->heap[$largest] = $temp;
+            
+            // Panggil fungsi secara rekursif ke bawah
+            $this->heapifyDown($largest);
         }
     }
 }
 
-/**
- * FUNGSI BANTUAN SDA 1: Algoritma Pemisah String Manual
- * Pengganti fungsi bawaan explode() PHP.
- */
+/* =================================================================
+   3. MATERI: HASH TABLE
+   Digunakan untuk menyimpan genre unik tanpa perlu perulangan Linear
+================================================================= */
+class GenreHashTable {
+    private $table = [];
+    private $ukuran = 20; // Ukuran bucket hash
+
+    // Fungsi Hashing sederhana (Modulo dari nilai ASCII)
+    private function fungsiHash($string) {
+        $hash = 0;
+        $panjang = strlen($string);
+        for ($i = 0; $i < $panjang; $i++) {
+            $hash += ord(substr($string, $i, 1));
+        }
+        return $hash % $this->ukuran;
+    }
+
+    public function tambahGenre($genre) {
+        $index = $this->fungsiHash($genre);
+        
+        // Buat bucket (array) jika belum ada (menangani Collision/Tabrakan)
+        if (!isset($this->table[$index])) {
+            $this->table[$index] = [];
+        }
+
+        // Cek apakah genre sudah ada di bucket tersebut
+        foreach ($this->table[$index] as $g) {
+            if ($g === $genre) return; // Sudah ada, tidak perlu dimasukkan
+        }
+
+        $this->table[$index][] = $genre;
+    }
+
+    public function ambilSemuaGenre() {
+        $semuaGenre = [];
+        foreach ($this->table as $bucket) {
+            foreach ($bucket as $genre) {
+                $semuaGenre[] = $genre;
+            }
+        }
+        return $semuaGenre;
+    }
+}
+
+/* =================================================================
+   4. MATERI: REKURSIF (PENCARIAN STRING)
+   Pengganti Brute-Force String Matching biasa
+================================================================= */
+
+// Fungsi Bantuan 1: Mengecek kecocokan karakter secara rekursif
+function cekKarakterRekursif($teks, $pola, $it, $ip) {
+    if ($ip === strlen($pola)) return true;  // Base Case 1: Pola cocok semua
+    if ($it === strlen($teks)) return false; // Base Case 2: Teks habis, pola belum selesai
+    
+    if (substr($teks, $it, 1) === substr($pola, $ip, 1)) {
+        return cekKarakterRekursif($teks, $pola, $it + 1, $ip + 1);
+    }
+    return false;
+}
+
+// Fungsi Bantuan 2: Menggeser indeks pencarian pada teks secara rekursif
+function pencarianStringRekursif($teks, $pola, $indexTeks) {
+    $panjangTeks = strlen($teks);
+    $panjangPola = strlen($pola);
+
+    // Base Case 3: Indeks sudah melebihi batas kemungkinan cocok
+    if ($indexTeks > $panjangTeks - $panjangPola) return false; 
+
+    // Jika cocok dari indeks saat ini, kembalikan true
+    if (cekKarakterRekursif($teks, $pola, $indexTeks, 0)) {
+        return true;
+    }
+
+    // Panggil diri sendiri dengan menggeser indeks ke kanan (+1)
+    return pencarianStringRekursif($teks, $pola, $indexTeks + 1);
+}
+
+/* =================================================================
+   FUNGSI BANTUAN DASAR (PARSING ARRAY KATA)
+================================================================= */
 function pisahStringManual($string, $delimiter = ',') {
     $hasil = [];
     $kataSementara = "";
     $panjang = strlen($string);
-    
     for ($i = 0; $i < $panjang; $i++) {
-        $char = substr($string, $i, 1); // Lebih aman dibanding $string[$i]
+        $char = substr($string, $i, 1);
         if ($char === $delimiter) {
-            if (trim($kataSementara) !== "") {
-                $hasil[] = trim($kataSementara);
-            }
+            if (trim($kataSementara) !== "") $hasil[] = trim($kataSementara);
             $kataSementara = ""; 
         } else {
             $kataSementara .= $char;
         }
     }
-    
-    if (trim($kataSementara) !== "") {
-        $hasil[] = trim($kataSementara);
-    }
-    
+    if (trim($kataSementara) !== "") $hasil[] = trim($kataSementara);
     return $hasil;
 }
 
-/**
- * FUNGSI BANTUAN SDA 2: Algoritma Brute Force String Matching (VERSI PERBAIKAN)
- * Lebih kebal terhadap perbedaan konfigurasi server lokal & spasi tersembunyi.
- */
-function pencarianStringManual($teks, $pola) {
-    // Bersihkan spasi liar di ujung teks dan ubah ke huruf kecil semua
-    $teks = strtolower(trim($teks));
-    $pola = strtolower(trim($pola));
+/* =================================================================
+   PENERAPAN ALGORITMA PADA FUNGSI UTAMA UNTUK FRONTEND
+================================================================= */
 
-    $panjangTeks = strlen($teks);
-    $panjangPola = strlen($pola);
-
-    if ($panjangPola === 0 || $panjangPola > $panjangTeks) {
-        return false;
-    }
-
-    // Melakukan pergeseran indeks (Brute Force String Matching)
-    for ($i = 0; $i <= $panjangTeks - $panjangPola; $i++) {
-        $cocok = true;
-        for ($j = 0; $j < $panjangPola; $j++) {
-            // Menggunakan substr() menjamin kecocokan karakter 100% akurat di semua versi PHP
-            if (substr($teks, $i + $j, 1) !== substr($pola, $j, 1)) {
-                $cocok = false;
-                break; 
-            }
-        }
-        if ($cocok) {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-/**
- * FUNGSI 1: Mengambil daftar genre unik secara otomatis dari database
- */
+// MENGGUNAKAN HASH TABLE
 function dapatkanMasterGenre($databaseFilm) {
-    $master = [];
+    $hashTable = new GenreHashTable();
     foreach ($databaseFilm as $film) {
         $genres = pisahStringManual(strtolower($film['genre']));
-        
         foreach ($genres as $g) {
-            $sudahAda = false;
-            foreach ($master as $m) {
-                if ($m === $g) {
-                    $sudahAda = true;
-                    break;
-                }
-            }
-            if (!$sudahAda) {
-                $master[] = $g;
-            }
+            $hashTable->tambahGenre($g); 
         }
     }
-    return $master;
+    return $hashTable->ambilSemuaGenre();
 }
 
-/**
- * FUNGSI 2: Rekomendasi berdasarkan GENRE (Linear Search + Binary Search Tree)
- */
+// MENGGUNAKAN BINARY MAX-HEAP
 function dapatkanRekomendasi($genreTarget, $databaseFilm) {
     $targetGenres = pisahStringManual(strtolower($genreTarget));
-    
-    $treeRekomendasi = new RekomendasiTree();
+    $maxHeap = new MaxHeap();
     $adaData = false;
 
     foreach ($databaseFilm as $film) {
@@ -164,41 +246,40 @@ function dapatkanRekomendasi($genreTarget, $databaseFilm) {
         }
 
         if ($jumlahMatch > 0) {
-            $totalGenreFilm = count($filmGenres);
-            $skorDesimal = $jumlahMatch / $totalGenreFilm;
-            
+            $skorDesimal = $jumlahMatch / count($filmGenres);
             $film['skor_kemiripan'] = $skorDesimal; 
-            $treeRekomendasi->insert($film);
+            $maxHeap->insert($film);
             $adaData = true;
         }
     }
 
     $hasilUrut = [];
     if ($adaData) {
-        $treeRekomendasi->keArrayDescending($treeRekomendasi->root, $hasilUrut);
+        // Ambil elemen Root satu per satu agar otomatis terurut dari terbesar
+        while (($film = $maxHeap->extractMax()) !== null) {
+            $hasilUrut[] = $film;
+        }
     }
 
     return $hasilUrut;
 }
 
-/**
- * FUNGSI 3: Mencari film berdasarkan JUDUL (Linear Search + Brute Force String)
- */
+// MENGGUNAKAN LINKED LIST & REKURSIF PENCARIAN
 function cariFilmBerdasarkanJudul($kataKunci, $databaseFilm) {
-    $hasilPencarian = [];
-    $kataKunci = trim($kataKunci);
+    $linkedList = new PencarianLinkedList();
+    $kataKunci = strtolower(trim($kataKunci));
     
-    if ($kataKunci === "") {
-        return $hasilPencarian; 
-    }
+    if ($kataKunci === "") return [];
 
     foreach ($databaseFilm as $film) {
-        // Ditambahkan trim() pada judul film agar spasi di ujung database terhapus otomatis
-        if (pencarianStringManual(trim($film['judul']), $kataKunci)) {
-            $hasilPencarian[] = $film;
+        $judulFilm = strtolower(trim($film['judul']));
+        
+        // Memanggil fungsi REKURSIF mulai dari indeks 0
+        if (pencarianStringRekursif($judulFilm, $kataKunci, 0)) {
+            $linkedList->tambahData($film);
         }
     }
 
-    return $hasilPencarian;
+    return $linkedList->keArray();
 }
 ?>
