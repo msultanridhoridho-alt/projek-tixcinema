@@ -21,7 +21,6 @@ class NodeFilm {
 class RekomendasiTree {
     public $root = null;
 
-    // Fungsi untuk memasukkan node baru ke dalam Tree secara rekursif
     public function insert($film) {
         $newNode = new NodeFilm($film);
         if ($this->root === null) {
@@ -32,16 +31,13 @@ class RekomendasiTree {
     }
 
     private function insertNode($current, $newNode) {
-        // Jika skor film baru LEBIH KECIL, masukkan ke sebelah KIRI
         if ($newNode->film['skor_kemiripan'] < $current->film['skor_kemiripan']) {
             if ($current->left === null) {
                 $current->left = $newNode;
             } else {
                 $this->insertNode($current->left, $newNode);
             }
-        } 
-        // Jika skor film baru LEBIH BESAR atau SAMA DENGAN, masukkan ke sebelah KANAN
-        else {
+        } else {
             if ($current->right === null) {
                 $current->right = $newNode;
             } else {
@@ -50,43 +46,95 @@ class RekomendasiTree {
         }
     }
 
-    /**
-     * REVERSE IN-ORDER TRAVERSAL (Kanan -> Akar -> Kiri)
-     * Mengambil data dari Tree dari nilai terbesar ke terkecil secara rekursif
-     */
     public function keArrayDescending($node, &$hasil) {
         if ($node !== null) {
-            // Kunjungi cabang kanan dulu (nilai-nilai yang lebih besar)
             $this->keArrayDescending($node->right, $hasil);
-            
-            // Masukkan data node saat ini ke dalam array hasil
             $hasil[] = $node->film;
-            
-            // Kunjungi cabang kiri (nilai-nilai yang lebih kecil)
             $this->keArrayDescending($node->left, $hasil);
         }
     }
 }
 
 /**
- * FUNGSI 1: Mengambil daftar genre unik secara otomatis dari database (Linear Search).
+ * FUNGSI BANTUAN SDA 1: Algoritma Pemisah String Manual
+ * Pengganti fungsi bawaan explode() PHP.
+ */
+function pisahStringManual($string, $delimiter = ',') {
+    $hasil = [];
+    $kataSementara = "";
+    $panjang = strlen($string);
+    
+    for ($i = 0; $i < $panjang; $i++) {
+        $char = substr($string, $i, 1); // Lebih aman dibanding $string[$i]
+        if ($char === $delimiter) {
+            if (trim($kataSementara) !== "") {
+                $hasil[] = trim($kataSementara);
+            }
+            $kataSementara = ""; 
+        } else {
+            $kataSementara .= $char;
+        }
+    }
+    
+    if (trim($kataSementara) !== "") {
+        $hasil[] = trim($kataSementara);
+    }
+    
+    return $hasil;
+}
+
+/**
+ * FUNGSI BANTUAN SDA 2: Algoritma Brute Force String Matching (VERSI PERBAIKAN)
+ * Lebih kebal terhadap perbedaan konfigurasi server lokal & spasi tersembunyi.
+ */
+function pencarianStringManual($teks, $pola) {
+    // Bersihkan spasi liar di ujung teks dan ubah ke huruf kecil semua
+    $teks = strtolower(trim($teks));
+    $pola = strtolower(trim($pola));
+
+    $panjangTeks = strlen($teks);
+    $panjangPola = strlen($pola);
+
+    if ($panjangPola === 0 || $panjangPola > $panjangTeks) {
+        return false;
+    }
+
+    // Melakukan pergeseran indeks (Brute Force String Matching)
+    for ($i = 0; $i <= $panjangTeks - $panjangPola; $i++) {
+        $cocok = true;
+        for ($j = 0; $j < $panjangPola; $j++) {
+            // Menggunakan substr() menjamin kecocokan karakter 100% akurat di semua versi PHP
+            if (substr($teks, $i + $j, 1) !== substr($pola, $j, 1)) {
+                $cocok = false;
+                break; 
+            }
+        }
+        if ($cocok) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * FUNGSI 1: Mengambil daftar genre unik secara otomatis dari database
  */
 function dapatkanMasterGenre($databaseFilm) {
     $master = [];
     foreach ($databaseFilm as $film) {
-        $genres = array_map('trim', explode(',', strtolower($film['genre'])));
+        $genres = pisahStringManual(strtolower($film['genre']));
+        
         foreach ($genres as $g) {
-            if ($g !== "") {
-                $sudahAda = false;
-                foreach ($master as $m) {
-                    if ($m === $g) {
-                        $sudahAda = true;
-                        break;
-                    }
+            $sudahAda = false;
+            foreach ($master as $m) {
+                if ($m === $g) {
+                    $sudahAda = true;
+                    break;
                 }
-                if (!$sudahAda) {
-                    $master[] = $g;
-                }
+            }
+            if (!$sudahAda) {
+                $master[] = $g;
             }
         }
     }
@@ -94,50 +142,63 @@ function dapatkanMasterGenre($databaseFilm) {
 }
 
 /**
- * FUNGSI 2: Digunakan di index.php untuk mendapatkan daftar rekomendasi.
- * Menggunakan kombinasi Linear Search (Pencarian) dan Binary Search Tree (Pengurutan)
+ * FUNGSI 2: Rekomendasi berdasarkan GENRE (Linear Search + Binary Search Tree)
  */
-function dapatkanRekomendasi($judulTarget, $genreTarget, $databaseFilm) {
+function dapatkanRekomendasi($genreTarget, $databaseFilm) {
+    $targetGenres = pisahStringManual(strtolower($genreTarget));
     
-    $targetGenres = array_map('trim', explode(',', strtolower($genreTarget)));
-    
-    // Inisialisasi Pohon Struktur Data (Tree)
     $treeRekomendasi = new RekomendasiTree();
     $adaData = false;
 
-    // 1. LINEAR SEARCH: Hitung kecocokan genre
     foreach ($databaseFilm as $film) {
-        $filmGenres = array_map('trim', explode(',', strtolower($film['genre'])));
+        $filmGenres = pisahStringManual(strtolower($film['genre']));
         $jumlahMatch = 0;
 
         foreach ($targetGenres as $tGenre) {
             foreach ($filmGenres as $fGenre) {
-                if ($tGenre === $fGenre && $tGenre !== "") {
+                if ($tGenre === $fGenre) {
                     $jumlahMatch++;
                     break; 
                 }
             }
         }
 
-        // 2. TREE INSERTION: Jika cocok, langsung masukkan ke dalam Tree
         if ($jumlahMatch > 0) {
             $totalGenreFilm = count($filmGenres);
             $skorDesimal = $jumlahMatch / $totalGenreFilm;
             
             $film['skor_kemiripan'] = $skorDesimal; 
-            
-            // Masukkan ke dalam struktur data Tree
             $treeRekomendasi->insert($film);
             $adaData = true;
         }
     }
 
-    // 3. TREE TRAVERSAL: Ubah struktur Tree kembali menjadi Array yang berurutan secara Descending
     $hasilUrut = [];
     if ($adaData) {
         $treeRekomendasi->keArrayDescending($treeRekomendasi->root, $hasilUrut);
     }
 
     return $hasilUrut;
+}
+
+/**
+ * FUNGSI 3: Mencari film berdasarkan JUDUL (Linear Search + Brute Force String)
+ */
+function cariFilmBerdasarkanJudul($kataKunci, $databaseFilm) {
+    $hasilPencarian = [];
+    $kataKunci = trim($kataKunci);
+    
+    if ($kataKunci === "") {
+        return $hasilPencarian; 
+    }
+
+    foreach ($databaseFilm as $film) {
+        // Ditambahkan trim() pada judul film agar spasi di ujung database terhapus otomatis
+        if (pencarianStringManual(trim($film['judul']), $kataKunci)) {
+            $hasilPencarian[] = $film;
+        }
+    }
+
+    return $hasilPencarian;
 }
 ?>
